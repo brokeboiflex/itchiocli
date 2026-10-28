@@ -96,3 +96,10 @@ browserTest('devlog attachment identities follow native hidden fields and global
  <li class="image_preview"><input type="hidden" name="attachment[3][object_type]" value="image"><input type="hidden" name="attachment[3][object_id]" value="60"></li></ul></div></div>`);
  const rows=await selectedAttachments(client());expect(rows.map(r=>[r.index,r.type,r.objectId??r.url])).toEqual([[1,'build','40'],[2,'video_link','https://vimeo.com/123'],[3,'image','60']]);expect(rows[0]?.attachmentId).toBe('50');
 });
+
+browserTest('own posts without report or ban controls fail before any click or submission',async()=>{
+ const {report,ban}=await import('../src/web-actions.ts');
+ await page.setContent('<div class="community_post" id="post-101"><div class="post_author">owner</div><div class="post_body">Private test</div><a class="post_action" href="/post/101/edit">Edit</a></div>');
+ await expect(report(client(),'https://itch.io/t/123/fixture','101','Private test')).rejects.toMatchObject({code:'ACTION_UNAVAILABLE'});
+ await expect(ban(client(),'https://itch.io/t/123/fixture','101','Private test')).rejects.toMatchObject({code:'ACTION_UNAVAILABLE'});
+});

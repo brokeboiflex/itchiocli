@@ -284,7 +284,9 @@ export async function moderate(b: Browser, target: string, action: string, reaso
 export async function report(b: Browser, target: string, postId: string, reason: string, category:"off_topic"|"spam"|"offensive"|"other"="other"): Promise<unknown> {
   if(!["off_topic","spam","offensive","other"].includes(category)) throw new ClientError("Unknown report category.","INVALID_ARGUMENT");
   await b.goto(gameURL(target));
-  await (await postNode(b, postId)).locator(".report_post_btn, .report_btn").click();
+  const control=(await postNode(b, postId)).locator(".report_post_btn, .report_btn");
+  if(!await control.count())throw new ClientError("This post does not offer a report action for the signed-in account.","ACTION_UNAVAILABLE");
+  await (await one(control,"report post control")).click();
   const form = await one(b.page.locator(".lightbox form"), "report form");
   await form.locator(`input[name="report[reason]"][value="${category}"]`).check();
   await form.locator('input[name="block_user[yes]"]').setChecked(false);
@@ -294,7 +296,9 @@ export async function report(b: Browser, target: string, postId: string, reason:
 
 export async function ban(b: Browser, target: string, postId: string, reason: string): Promise<unknown> {
   await b.goto(gameURL(target));
-  await (await postNode(b, postId)).locator(".ban_user_btn").click();
+  const control=(await postNode(b, postId)).locator(".ban_user_btn");
+  if(!await control.count())throw new ClientError("This post does not offer a ban action for the signed-in account.","ACTION_UNAVAILABLE");
+  await (await one(control,"ban author control")).click();
   const form = await one(b.page.locator(".lightbox form"), "ban form");
   await fillEditor(form, reason);
   return submitForm(b, form);

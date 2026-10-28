@@ -1,6 +1,6 @@
 # Coverage and verification
 
-Inspected 2026-10-28. This is a working development version with authenticated community checks, not complete coverage of every itch.io feature.
+Inspected 2026-10-29. This is a working development version with authenticated community checks, not complete coverage of every itch.io feature.
 
 | Workflow | Commands | Evidence |
 | --- | --- | --- |
@@ -16,10 +16,10 @@ Inspected 2026-10-28. This is a working development version with authenticated c
 | Community settings | `community-settings`, `forms`, `configure` | Description, rules, voting and directory type saved and read back; radios and named rich editors supported |
 | Categories and tags | `categories`, `create-category`, `edit-category`, `move-category`, `delete-category`, `tag` | Created, edited, hid, reordered and deleted disposable categories; nested parent/child IDs and removal verified; added/removed a tag |
 | Owner queues | `moderators`, `bans`, `reports`, `pending-posts`, `logs` | Read empty queues and populated moderation log; returns page text, tables and links |
-| Add moderator | `add-moderator` | Actual native form inspected; site's rejection of adding yourself is reported as `WRITE_REJECTED`; successful addition untested |
+| Add moderator | `add-moderator` | Actual native form inspected; site's rejection of adding yourself is reported as `WRITE_REJECTED`; successful addition untested; self-add rejection reconfirmed live on 2026-10-29 |
 | Pending post actions | `pending approve/dismiss` | Current frontend source inspected; no pending record available for a live write |
-| Report a post | `report` | Actual report dialog inspected, including required category and optional description; no report submitted |
-| Ban a post author | `ban` | Frontend source reviewed; no eligible other account in the private fixture; live action untested |
+| Report a post | `report` | Actual report dialog inspected, including required category and optional description; the owner’s own post has no report control and now returns `ACTION_UNAVAILABLE`; no report submitted |
+| Ban a post author | `ban` | Live owner-post attempt confirmed that no ban control is offered; returns `ACTION_UNAVAILABLE` before any submission. Successful ban remains unverified without another account |
 | Remove moderator/unban/report resolution | `remove-moderator`, `unban`, `resolve-report`, `ignore-report` | Runtime discovery of actual administration rows/forms; ambiguous rows rejected in offline tests; no populated live row available |
 | Devlog drafts | `devlogs`, `devlog`, `edit-devlog`, `delete-devlog` | Private draft created, edited and read back as unpublished; deletion confirmed by absence from the dashboard |
 | Devlog attachments | `devlog-attachments`, `devlog-attach`, `devlog-attachment` | Live file and butler build attachment, file order change, PNG transfer, video link, image/file removal; every save read back. Existing-project-image selection is source/DOM covered, with no available project screenshot for a live attachment |
@@ -43,7 +43,11 @@ Live owner writes used a private Draft project with payments disabled; an anonym
 
 ## Checks
 
-TypeScript checking and 27 Bun tests passed, including eight offline Chromium DOM tests. The fixtures reproduce observed reply nesting, moderation-event markup, radio groups, Redactor field association, form controls named `action`, nested category identity ambiguous administration rows, native attachment IDs, and lossless multi-page traversal. The upload test covers literal subprocess arguments and the email-verification error. They load no account cookies and block network access. Live checks above are separate evidence; untested writes remain explicitly marked.
+TypeScript checking and 28 Bun tests passed, including nine offline Chromium DOM tests. The fixtures reproduce observed reply nesting, moderation-event markup, radio groups, Redactor field association, form controls named `action`, nested category identity, ambiguous administration rows, native attachment IDs, lossless multi-page traversal, and unavailable report/ban actions. The upload test covers literal subprocess arguments and the email-verification error. They load no account cookies and block network access. Live checks above are separate evidence; untested writes remain explicitly marked.
 
 - Current `dashboard.min.js`: attachment hidden fields, upload/build/image identity, image-upload completion, video links, and grouped movement controls. Live uploads used the native picker rather than fabricated multipart requests.
 - Current community board markup: `a.page_link.forward_link` next-page URLs; the adapter follows the actual link and retains in-page offsets.
+
+## Additional live moderation checks, 2026-10-29
+
+Only the owner account is signed in; the user confirmed no second account is available. Moderator, report, ban and pending-post queues were read again and remain empty. The site rejects adding the owner as moderator and offers neither Report nor Ban on the owner's posts. The CLI previously waited until Playwright timed out for those missing actions; it now returns `ACTION_UNAVAILABLE` immediately, verified against the live private topic and an offline DOM regression. No other user was banned, reported, or granted moderator access. Successful invitation/removal, ban/unban, report resolution, and pending-post actions still require an eligible counterpart or queue record; these checks are not represented as successful live writes.
