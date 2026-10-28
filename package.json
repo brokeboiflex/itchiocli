@@ -1,0 +1,39 @@
+{
+  "name": "itchiocli",
+  "version": "0.1.0",
+  "description": "End-user itch.io CLI and TypeScript API using your browser session",
+  "license": "MIT",
+  "type": "module",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts",
+    "./web-actions": "./src/web-actions.ts"
+  },
+  "bin": {
+    "itchiocli": "./itchiocli.ts"
+  },
+  "files": [
+    "src",
+    "itchiocli.ts",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "engines": {
+    "bun": ">=1.1"
+  },
+  "scripts": {
+    "itchiocli": "bun run itchiocli.ts",
+    "agent": "bun run itchiocli.ts --compact",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "playwright-core": "^1.64.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}
