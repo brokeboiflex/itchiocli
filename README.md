@@ -2,7 +2,7 @@
 
 A Bun CLI and importable TypeScript API following [fbcli](https://github.com/brokeboiflex/fbcli)'s flat commands, browser-session authentication, JSON output, offline `describe`, and `--dry-run` conventions.
 
-**Development version.** Core topic, comment, moderation-state, category, tag, and settings workflows have been exercised in a private authenticated community. Build upload/download, devlog drafts, nested category editing/reordering/deletion, and a public comment also have live verification. Actions on other users and populated moderation queues remain unverified. See [tested workflows and remaining work](docs/coverage.md).
+**Development version.** Core topic, comment, moderation-state, category, tag, and settings workflows have been exercised in a private authenticated community. Build upload/download, devlog attachments (including PNG upload), pagination, nested category editing/reordering/deletion, and a public comment also have live verification. Actions on other users and populated moderation queues remain unverified. See [tested workflows and remaining work](docs/coverage.md).
 
 ## Run
 
@@ -58,7 +58,7 @@ Downloads require a specific upload ID from `uploads` and a new output path. Exi
 
 Community commands include `comments`, `comment --reply-to`, `edit-comment`, `delete-comment`, `topics`, `topic`, `edit-topic`, `delete-topic`, `move-targets`, `move-topic`, `moderate`, `report`, and `ban`. Moderation states are `lock`, `unlock`, `stick`, `unstick`, `archive`, `unarchive`, `hide`, and `unhide`. Reports accept `--category off_topic|spam|offensive|other`; they do not also block the author. Use full community URLs for boards/topics. `forms URL` exposes editable form field names on an administration page. `configure URL fields.json --form 0 --yes` submits the selected form using its real CSRF fields; the JSON maps field names to strings or checkbox booleans. It is a low-level form helper, not proof that every admin workflow is supported. Hidden fields, passwords, and file uploads cannot be set with it.
 
-Owner commands: `moderators`, `bans`, `reports`, `pending-posts`, `logs`, `add-moderator`, `remove-moderator`, `unban`, `resolve-report`, `ignore-report`, `pending`, `categories`, `create-category`, `edit-category`, `move-category`, `delete-category`, `tag`, and `community-settings`. Start with the full project community URL or an administration URL. `describe COMMAND` lists each command's arguments. Queue reads return text, tables, and links from the loaded page.
+Owner commands: `moderators`, `bans`, `reports`, `pending-posts`, `logs`, `add-moderator`, `remove-moderator`, `unban`, `resolve-report`, `ignore-report`, `pending`, `categories`, `create-category`, `edit-category`, `move-category`, `delete-category`, `tag`, and `community-settings`. Start with the full project community URL or an administration URL. `describe COMMAND` lists each command's arguments. Queue reads return text, tables, links, and a continuation cursor. Add `--all` to follow all queue pages, or `--cursor TOKEN` to resume (up to 20 queue pages per resumed call). Paginated queue results contain `pages`.
 
 ```sh
 bun itchiocli.ts reports https://creator.itch.io/game/community --cookies brave
@@ -94,7 +94,33 @@ bun itchiocli.ts edit-devlog https://itch.io/dashboard/post/POST_ID/edit --title
 bun itchiocli.ts delete-devlog POST_ID --yes
 ```
 
-New devlogs default to drafts. Use `--published on` to publish, `--comments on|off` to control comments, and `--type` to select one of the site's eight post classifications. `devlogs` returns editor links. Devlog text is plain text; image/video attachment composition is not included.
+New devlogs default to drafts. Use `--published on` to publish, `--comments on|off` to control comments, and `--type` to select one of the site's eight post classifications. `devlogs` returns editor links. Devlog text is plain text. Attachments use the native editor and are read back after saving:
+
+```sh
+bun itchiocli.ts devlog-attachments POST_ID
+bun itchiocli.ts devlog-attach POST_ID file 1 --yes
+bun itchiocli.ts devlog-attach POST_ID image ./screenshot.png --yes
+bun itchiocli.ts devlog-attach POST_ID existing-image 1 --yes
+bun itchiocli.ts devlog-attach POST_ID video https://www.youtube.com/watch?v=VIDEO_ID --yes
+bun itchiocli.ts devlog-attachment POST_ID 2 up --yes
+bun itchiocli.ts devlog-attachment POST_ID 1 remove --yes
+```
+
+`file` selects an existing upload or butler build by its one-based `files` index. `existing-image` selects a project image by its `images` index; preview URLs are included. Re-read the list before selecting an index. New image uploads belong only to the devlog, not the project's screenshot library. Once removed and saved, such an image may no longer be available to reattach. `video` accepts the site's YouTube, Vimeo, and Sketchfab links. `devlog-attachment` uses the selected attachment's global index; `up|down` follows the site's file/video order or image order. It cannot move an image into the file group. Attachments preserve the devlog's publication state.
+
+## Pagination
+
+`topics`, `comments-page`, and owner queues support `--cursor TOKEN` and `--all`. The cursor preserves an offset inside an oversized page, so `--limit 1` does not skip the rest of that page. `--all` ignores the item limit and follows every available page; use it deliberately on large public boards. Cursors are scoped to the original page and stop if the site returns a cycle or a foreign destination. Lists can still change between calls.
+
+```sh
+bun itchiocli.ts topics https://itch.io/board/BOARD_ID/board --limit 20
+bun itchiocli.ts topics https://itch.io/board/BOARD_ID/board --cursor TOKEN --limit 20
+bun itchiocli.ts comments-page https://itch.io/t/TOPIC_ID/topic --limit 1
+bun itchiocli.ts comments https://itch.io/t/TOPIC_ID/topic --all
+bun itchiocli.ts logs https://creator.itch.io/game/community --all
+```
+
+Plain `comments` keeps its original array result. `comments-page` and `comments --all|--cursor` return `{items, cursor, next, url}`. The TypeScript API exposes `commentPages`, `topics(..., {cursor, all})`, `administration(..., {cursor, all})`, `devlogAttachments`, `attachDevlog`, and `changeDevlogAttachment`.
 
 ## TypeScript API
 
@@ -119,6 +145,6 @@ bun test
 ITCHIOCLI_BROWSER=/path/to/browser bun test
 ```
 
-Without `ITCHIOCLI_BROWSER`, the six DOM tests are skipped. They never load your account cookies or make network requests.
+Without `ITCHIOCLI_BROWSER`, the eight DOM tests are skipped. They never load your account cookies or make network requests.
 
 The argument parser and browser-cookie reader were adapted from MIT-licensed [brokeboiflex/fbcli](https://github.com/brokeboiflex/fbcli); its copyright notice is retained in LICENSE. Website adapters are separate code based on the referenced services' current UI/source. No account cookies, private page snapshots, or access tokens are included in either package.

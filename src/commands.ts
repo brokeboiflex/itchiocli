@@ -1,3 +1,4 @@
+import * as attachments from "./devlog-attachments.ts";
 import { readFileSync } from "node:fs";
 import { type Command, str, opt, body, limit, textFile, field } from "./command.ts";
 import { ClientError } from "./errors.ts";
@@ -15,24 +16,31 @@ function fields(path: string): Record<string, string | boolean> {
   return value;
 }
 
+const pagination=[field('cursor','resume token from a paginated result'),{flags:['--all'],dest:'all',action:'storeTrue' as const}];
+const pageOptions=(a:Parameters<typeof str>[0])=>({cursor:opt(a,'cursor'),all:!!a.all});
+
 export const commands: Command[] = [
+  {name:'comments-page',help:'read a bounded comment page and lossless resume cursor',positionals:[target],options:[limit,...pagination],validate:validTarget,execute:(b,a)=>web.commentPages(b,str(a,'target'),Number(a.limit),pageOptions(a))},
+  {name:'devlog-attachments',help:'list selected attachments and available file/image indices',positionals:[postId],validate:a=>{web.id(str(a,'postId'));},execute:(b,a)=>attachments.devlogAttachments(b,str(a,'postId'))},
+  {name:'devlog-attach',help:'attach an existing file/image by index, upload an image, or add a video URL',mutates:true,positionals:[postId,{dest:'kind'},{dest:'value'}],validate:a=>{web.id(str(a,'postId'));attachments.validateAttachment(attachmentInput(a));},execute:(b,a)=>attachments.attachDevlog(b,str(a,'postId'),attachmentInput(a))},
+  {name:'devlog-attachment',help:'remove or move an attached item by its selected index',mutates:true,positionals:[postId,{dest:'index'},{dest:'action'}],validate:a=>{web.id(str(a,'postId'));if(!Number.isSafeInteger(Number(a.index))||Number(a.index)<1||!['remove','up','down'].includes(str(a,'action')))throw new ClientError('Use an index and remove, up or down.','INVALID_ARGUMENT');},execute:(b,a)=>attachments.changeDevlogAttachment(b,str(a,'postId'),Number(a.index),str(a,'action') as 'remove'|'up'|'down')},
   { name: "whoami", help: "show the signed-in account", execute: b => web.whoami(b) },
   { name: "search", help: "search public projects", positionals: [{ dest: "query" }], options: [limit, { flags: ["--page"], dest: "page", valueType: "int", default: 1 }], validate: a => { if (!Number.isSafeInteger(a.page) || Number(a.page) < 1) throw new ClientError("Page must be a positive integer.", "INVALID_ARGUMENT"); }, execute: (b,a) => web.search(b,str(a,"query"),Number(a.limit),Number(a.page)) },
   { name: "read", help: "read a project or topic", positionals: [target], options: [limit], validate: validTarget, execute: (b,a) => web.read(b,str(a,"target"),Number(a.limit)) },
   { name: "uploads", help: "list downloadable files on a project", positionals: [target], validate: validTarget, execute: (b,a) => web.uploads(b,str(a,"target")) },
   { name: "download", help: "download an accessible upload to a new local file", positionals: [target,{ dest: "uploadId" },{ dest: "output" }], validate: a => { validTarget(a); web.id(str(a,"uploadId")); }, execute: (b,a) => web.download(b,str(a,"target"),str(a,"uploadId"),str(a,"output")) },
   { name: "upload", help: "upload a build with official butler", mutates: true, browser: false, positionals: [{ dest: "path" },{ dest: "target", help: "user/game:channel" }], options: [field("userversion","build version"),field("butler","butler executable")], validate: a => validateUpload(str(a,"path"),str(a,"target")), execute: (_,a) => upload(str(a,"path"),str(a,"target"),{ version: opt(a,"userversion"), executable: opt(a,"butler") }) },
-  { name: "comments", help: "list comments on a project or topic", positionals: [target], options: [limit], validate: validTarget, execute: (b,a) => web.comments(b,str(a,"target"),Number(a.limit)) },
+  { name: "comments", help: "list comments; --all/--cursor returns a paginated result", positionals: [target], options: [limit,...pagination], validate: validTarget, execute: (b,a) => a.all||a.cursor?web.commentPages(b,str(a,"target"),Number(a.limit),pageOptions(a)):web.comments(b,str(a,"target"),Number(a.limit)) },
   { name: "comment", help: "post a comment or reply", mutates: true, positionals: [target,text], options: [textFile,field("reply-to","parent comment ID")], validate: validComment, execute: (b,a) => web.comment(b,str(a,"target"),body(a),opt(a,"replyTo")) },
   { name: "edit-comment", help: "edit your comment", mutates: true, positionals: [target,postId,text], options: [textFile], validate: a => { validComment(a); web.id(str(a,"postId")); }, execute: (b,a) => web.editComment(b,str(a,"target"),str(a,"postId"),body(a)) },
   { name: "delete-comment", help: "soft-delete a comment you can moderate", mutates: true, positionals: [target,postId], validate: a => { validTarget(a); web.id(str(a,"postId")); }, execute: (b,a) => web.deleteComment(b,str(a,"target"),str(a,"postId")) },
-  { name: "topics", help: "list community topics", positionals: [target], options: [limit], validate: validTarget, execute: (b,a) => web.topics(b,str(a,"target"),Number(a.limit)) },
+  { name: "topics", help: "list community topics", positionals: [target], options: [limit,...pagination], validate: validTarget, execute: (b,a) => web.topics(b,str(a,"target"),Number(a.limit),pageOptions(a)) },
   { name: "topic", help: "create a community topic", mutates: true, positionals: [target,{ dest: "title" },text], options: [textFile], validate: a=>{validComment(a);if(!str(a,"title").trim())throw new ClientError("Title cannot be empty.","INVALID_ARGUMENT");}, execute: (b,a) => web.topic(b,str(a,"target"),str(a,"title"),body(a)) },
   { name:"edit-topic",help:"edit a topic title and body",mutates:true,positionals:[target,{dest:"title"},text],options:[textFile],validate:a=>{validComment(a);if(!str(a,"title").trim())throw new ClientError("Title cannot be empty.","INVALID_ARGUMENT");},execute:(b,a)=>web.editTopic(b,str(a,"target"),str(a,"title"),body(a)) },
   { name:"delete-topic",help:"delete a topic you can moderate",mutates:true,positionals:[target],validate:validTarget,execute:(b,a)=>web.deleteTopic(b,str(a,"target")) },
   { name:"move-topic",help:"move a topic to a permitted category",mutates:true,positionals:[target,{dest:"categoryId"}],validate:a=>{validTarget(a);web.id(str(a,"categoryId"));},execute:(b,a)=>web.moveTopic(b,str(a,"target"),str(a,"categoryId")) },
   { name:"move-targets",help:"inspect permitted destinations for moving a topic",positionals:[target],validate:validTarget,execute:(b,a)=>web.moveTargets(b,str(a,"target")) },
-  ...(["moderators","bans","reports","pending-posts","logs"] as const).map(name=>({name,help:`read community ${name}`,positionals:[target],validate:validTarget,execute:(b:Parameters<typeof web.administration>[0],a:Parameters<typeof body>[0])=>web.administration(b,str(a,"target"),name)})),
+  ...(["moderators","bans","reports","pending-posts","logs"] as const).map(name=>({name,help:`read community ${name}`,positionals:[target],options:pagination,validate:validTarget,execute:(b:Parameters<typeof web.administration>[0],a:Parameters<typeof body>[0])=>web.administration(b,str(a,"target"),name,pageOptions(a))})),
   { name:"community-settings",help:"update inspected community description, rules, type or voting fields",mutates:true,positionals:[target,{dest:"fieldsFile"}],validate:a=>{validTarget(a);fields(str(a,"fieldsFile"));},execute:(b,a)=>web.communitySettings(b,str(a,"target"),fields(str(a,"fieldsFile"))) },
   { name:"categories",help:"read community subcategories",positionals:[target],validate:validTarget,execute:(b,a)=>web.categories(b,str(a,"target")) },
   { name:"create-category",help:"create a community subcategory",mutates:true,positionals:[target,{dest:"title"}],options:[field("description","short category description"),field("parent","parent category ID")],validate:a=>{validTarget(a);if(!str(a,"title").trim())throw new ClientError("Title cannot be empty.","INVALID_ARGUMENT");},execute:(b,a)=>web.createCategory(b,str(a,"target"),str(a,"title"),opt(a,"description"),opt(a,"parent")) },
@@ -52,3 +60,10 @@ export const commands: Command[] = [
   { name: "forms", help: "inspect a community administration page's editable form fields", positionals: [target], validate: validTarget, execute: (b,a) => web.forms(b,str(a,"target")) },
   { name: "configure", help: "submit an inspected community administration form", mutates: true, positionals: [target,{ dest: "fieldsFile" }], options: [{ flags:["--form"],dest:"form",valueType:"int",default:0 }], validate: a => { validTarget(a); fields(str(a,"fieldsFile")); if (!Number.isSafeInteger(a.form) || Number(a.form)<0) throw new ClientError("Form index must be a nonnegative integer.","INVALID_ARGUMENT"); }, execute: (b,a) => web.configure(b,str(a,"target"),Number(a.form),fields(str(a,"fieldsFile"))) },
 ];
+
+function attachmentInput(a:Parameters<typeof str>[0]):attachments.AddAttachment {
+  const kind=str(a,'kind'),value=str(a,'value');
+  if(kind==='file'||kind==='existing-image')return {kind,index:Number(value)};
+  if(kind==='image')return {kind,path:value};if(kind==='video')return {kind,url:value};
+  throw new ClientError('Kind must be file, existing-image, image or video.','INVALID_ARGUMENT');
+}

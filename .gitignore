@@ -3,6 +3,7 @@ node_modules/
 .env.*
 !.env.example
 cookies*
+!src/cookies.ts
 *state*.json
 *.session.json
 output/

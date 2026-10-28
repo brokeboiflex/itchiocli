@@ -1,3 +1,4 @@
+import {collectPages, nextPage, type PageOptions} from "./pagination.ts";
 import { mkdir, stat, link, unlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { Locator } from "playwright-core";
@@ -53,21 +54,24 @@ export async function search(b: Browser, query: string, limit = 20, page = 1): P
   return { items, page, next: next ? siteURL(next) : null };
 }
 
-export async function comments(b: Browser, target: string, limit = 20): Promise<Comment[]> {
+export async function commentPages(b: Browser, target: string, limit=20,options:PageOptions={}) {
   await b.goto(gameURL(target));
-  const root = b.page.locator('.community_post_list_widget, .community_view_topic_widget, .game_comments_widget, .community_post_list');
-  if (!await root.count() && !await b.page.locator(S.comment).count()) throw new UiChanged("This page has no comment section. Use the project's community or topic URL.");
-  return extractComments(b, limit);
+  const root=b.page.locator('.community_post_list_widget, .community_view_topic_widget, .game_comments_widget, .community_post_list');
+  if(!await root.count()&&!await b.page.locator(S.comment).count())throw new UiChanged("This page has no comment section. Use the project's community or topic URL.");
+  return collectPages(b,limit,options,()=>extractComments(b));
+}
+export async function comments(b:Browser,target:string,limit=20):Promise<Comment[]>{
+  return (await commentPages(b,target,limit)).items;
 }
 
-async function extractComments(b: Browser, limit: number): Promise<Comment[]> {
-  return b.page.locator(S.comment).evaluateAll((nodes, max) => nodes.slice(0, max).map(node => ({
+async function extractComments(b: Browser, limit?: number): Promise<Comment[]> {
+  return b.page.locator(S.comment).evaluateAll((nodes, max) => (max===undefined?nodes:nodes.slice(0,max)).map(node => ({
     id: node.id.replace(/^post-/, "") || JSON.parse(node.getAttribute("data-post") || "{}").id?.toString() || "",
     text: node.querySelector(".post_body")?.textContent?.trim() ?? "",
     author: node.querySelector(".post_author")?.textContent?.trim() ?? "",
     url: node.querySelector<HTMLAnchorElement>(".post_date a")?.href ?? `${location.href.split("#")[0]}#${node.id}`,
     parentId: (node.parentElement?.closest(".community_post")?.id || (node.parentElement?.matches(".community_post_replies") ? node.parentElement.previousElementSibling?.id : null))?.replace(/^post-/, "") ?? null,
-  })), countLimit(limit));
+  })), limit===undefined?undefined:countLimit(limit));
 }
 
 export async function read(b: Browser, target: string, limit = 20): Promise<unknown> {
@@ -229,18 +233,19 @@ export async function deleteComment(b: Browser, target: string, postId: string):
   return { status: "submitted", id: postId, url: b.page.url() };
 }
 
-export async function topics(b: Browser, target: string, limit = 20): Promise<unknown> {
+export async function topics(b: Browser, target: string, limit = 20, options:PageOptions = {}): Promise<unknown> {
   await b.goto(gameURL(target));
+  return collectPages(b,limit,options,async()=>{
   const links = b.page.locator('a[href*="/t/"]');
-  const items = await links.evaluateAll((nodes, max) => {
+  return links.evaluateAll((nodes) => {
     const found = new Map<string, { title: string; url: string }>();
     for (const node of nodes as HTMLAnchorElement[]) {
       const title = node.textContent?.trim(); const m = new URL(node.href).pathname.match(/^\/t\/\d+(?:\/[^/]+)?/);
       if (title && m && !found.has(m[0])) found.set(m[0], { title, url: node.origin + m[0] });
     }
-    return [...found.values()].slice(0, max);
-  }, countLimit(limit));
-  return { items, url: b.page.url() };
+    return [...found.values()];
+  });
+  });
 }
 
 export async function topic(b: Browser, target: string, title: string, text: string): Promise<unknown> {
@@ -398,12 +403,17 @@ async function adminPage(b: Browser,target:string,section:AdminSection): Promise
   await b.goto(destinations[0]!);
 }
 
-export async function administration(b: Browser,target:string,section:AdminSection): Promise<unknown> {
+export async function administration(b: Browser,target:string,section:AdminSection,options:PageOptions = {}): Promise<unknown> {
   await adminPage(b,target,section);
+  const read=async()=>{
   const page=await one(b.page.locator('.page_widget').filter({has:b.page.locator('.community_edit_category_header_widget')}),"administration page");
   return {url:b.page.url(),section,text:await page.innerText(),
     tables:await page.locator("table").evaluateAll(tables=>tables.map(t=>({headers:[...t.querySelectorAll("thead th,thead td")].map(e=>e.textContent?.trim()),rows:[...t.querySelectorAll("tbody tr")].map(row=>[...row.querySelectorAll("td")].map(e=>e.textContent?.trim()))}))),
     links:await page.locator("a[href]").evaluateAll(es=>es.map(e=>({title:e.textContent?.trim(),url:(e as HTMLAnchorElement).href})))};
+  };
+  if(!options.all&&!options.cursor){const next=await nextPage(b);return {...await read(),next,cursor:next?Buffer.from(JSON.stringify({url:next,offset:0})).toString('base64url'):null};}
+  const result=await collectPages(b,20,options,async()=>[await read()]);
+  return {...result,section,pages:result.items};
 }
 
 export async function communitySettings(b: Browser,target:string,fields:Record<string,string|boolean>): Promise<unknown> {

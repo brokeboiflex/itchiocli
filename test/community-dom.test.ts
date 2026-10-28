@@ -69,3 +69,30 @@ browserTest("administration writes refuse ambiguous user rows before clicking",a
   await page.setContent(`<base href="https://itch.io"><a href="/category/1/bans">Bans</a><table><tr><td><a href="/profile/example">example</a><button>Unban</button></td></tr><tr><td><a href="/profile/example">example</a><button>Unban</button></td></tr></table>`);
   await expect(administrationAction(client(),'https://itch.io/category/1/bans','bans','example','remove')).rejects.toMatchObject({code:'UI_CHANGED'});
 });
+
+browserTest('pagination resumes inside a page, follows native forward links, and refuses other resources',async()=>{
+  const {collectPages,resume}=await import('../src/pagination.ts');
+  const first='https://itch.io/category/1/logs';let current=first;
+  const html=(url:string)=>url===first?'<div data-row>one</div><div data-row>two</div><a class="page_link forward_link" href="?before=2">Next page</a>':'<div data-row>three</div>';
+  const b={page,goto:async(url:string)=>{current=url;await page.setContent(`<base href="${url}">${html(url)}`);}} as unknown as Browser;
+  // setContent has no navigated origin; the client URL reflects the fixture route.
+  const originalURL=page.url.bind(page);page.url=()=>current;
+  try{
+    const read=()=>page.locator('[data-row]').allTextContents();await b.goto(first);
+    const a=await collectPages(b,1,{},read);expect(a.items).toEqual(['one']);
+    await b.goto(first);const second=await collectPages(b,1,{cursor:a.cursor!},read);expect(second.items).toEqual(['two']);
+    await b.goto(first);const third=await collectPages(b,1,{cursor:second.cursor!},read);expect(third.items).toEqual(['three']);expect(third.cursor).toBeNull();
+    await b.goto(first);expect((await collectPages(b,1,{all:true},read)).items).toEqual(['one','two','three']);
+    expect(()=>resume(a.cursor!,'https://itch.io/category/2/logs')).toThrow();
+    expect(()=>resume(Buffer.from(JSON.stringify({url:'https://evil.invalid/',offset:0})).toString('base64url'),first)).toThrow();
+  }finally{page.url=originalURL;}
+});
+
+browserTest('devlog attachment identities follow native hidden fields and global order',async()=>{
+ const {selectedAttachments}=await import('../src/devlog-attachments.ts');
+ await page.setContent(`<div class="attachment_picker"><div class="selected_attachments"><ul>
+ <li class="file_attachment"><span class="attachment_title">build.zip</span><input type="hidden" name="attachment[1][object_type]" value="build"><input type="hidden" name="attachment[1][object_id]" value="40"><input type="hidden" name="attachment[1][attachment_id]" value="50"></li>
+ <li class="video_attachment"><input type="hidden" name="attachment[2][type]" value="video_link"><input type="hidden" name="attachment[2][url]" value="https://vimeo.com/123"></li></ul><ul>
+ <li class="image_preview"><input type="hidden" name="attachment[3][object_type]" value="image"><input type="hidden" name="attachment[3][object_id]" value="60"></li></ul></div></div>`);
+ const rows=await selectedAttachments(client());expect(rows.map(r=>[r.index,r.type,r.objectId??r.url])).toEqual([[1,'build','40'],[2,'video_link','https://vimeo.com/123'],[3,'image','60']]);expect(rows[0]?.attachmentId).toBe('50');
+});

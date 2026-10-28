@@ -56,3 +56,11 @@ test("butler email rejection reaches the CLI wrapper as a specific error",async(
     await expect(upload(build,"owner/game:test",{executable:binary})).rejects.toMatchObject({code:"EMAIL_VERIFICATION_REQUIRED"});
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test('devlog attachment validation rejects offsite videos and invalid indices before browser work',async()=>{
+ const {validateAttachment}=await import('../src/devlog-attachments.ts');
+ expect(()=>validateAttachment({kind:'video',url:'https://youtube.com.evil.invalid/watch?v=x'})).toThrow();
+ expect(()=>validateAttachment({kind:'file',index:0})).toThrow();
+ const result=Bun.spawnSync([process.execPath,'itchiocli.ts','devlog-attachment','123','1','remove','--browser-path','/missing'],{cwd:import.meta.dir+'/..'});
+ expect(JSON.parse(result.stderr.toString()).error.code).toBe('CONFIRMATION_REQUIRED');
+});
